@@ -1,0 +1,6 @@
+rich>=13.9
+psutil>=6.1
+requests>=2.32
+prompt_toolkit>=3.0.50
+Pygments>=2.18
+dnspython>=2.7
