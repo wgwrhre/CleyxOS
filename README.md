@@ -58,5 +58,3 @@ Please don't crucify me over the name. 💀
 ---
 
 **Made with AI, curiosity, and an unreasonable amount of laziness.**
-
-*MAY THE LAZY GET LAZIER.*
