@@ -59,6 +59,7 @@ class CleyxCompleter(Completer):
             "brightness": ("up", "down"),
             "settings": ("sound", "display", "network", "bluetooth", "storage", "applications", "updates", "personalization", "privacy", "power"),
             "workspace": ("create", "addapp", "addgame", "addfolder", "addurl", "run", "list", "info", "remove"),
+            "workshop": ("create", "addapp", "addgame", "addfolder", "addurl", "run", "list", "info", "remove"),
         }
         if len(prefix) == 1:
             registered_subcommands = {
@@ -92,24 +93,24 @@ class CleyxCompleter(Completer):
                 if name.casefold().startswith(name_prefix):
                     yield Completion(name, start_position=-replace_length)
             return
-        if command == "workspace" and len(prefix) >= 2 and prefix[1].casefold() in {"run", "info", "remove"}:
+        if command in {"workspace", "workshop"} and len(prefix) >= 2 and prefix[1].casefold() in {"run", "info", "remove"}:
             from core.workspaces import list_workspaces
             for name in list_workspaces():
                 name_prefix = " ".join(prefix[2:] + ([word] if word else [])).casefold().strip()
-                replace_length = len(before) - len("workspace " + prefix[1]) - 1 + int(trailing_space)
+                replace_length = len(before) - len(command + " " + prefix[1]) - 1 + int(trailing_space)
                 if name.casefold().startswith(name_prefix):
                     yield Completion(name, start_position=-replace_length)
             return
-        if command == "workspace" and len(prefix) >= 2 and prefix[1].casefold() in {"addfolder", "addapp", "addgame", "addurl"} and len(prefix) == 2:
+        if command in {"workspace", "workshop"} and len(prefix) >= 2 and prefix[1].casefold() in {"addfolder", "addapp", "addgame", "addurl"} and len(prefix) == 2:
             from core.workspaces import list_workspaces
             for name in list_workspaces():
                 if name.casefold().startswith(word.casefold()):
                     yield Completion(name, start_position=-len(word))
             return
-        if command == "workspace" and len(prefix) >= 3 and prefix[1].casefold() == "addfolder":
+        if command in {"workspace", "workshop"} and len(prefix) >= 3 and prefix[1].casefold() == "addfolder":
             yield from self._path_completions(word)
             return
-        if command == "workspace" and len(prefix) >= 2 and prefix[1].casefold() in {"addapp", "addgame"}:
+        if command in {"workspace", "workshop"} and len(prefix) >= 2 and prefix[1].casefold() in {"addapp", "addgame"}:
             if len(prefix) == 2:
                 from core.workspaces import list_workspaces
                 for name in list_workspaces():
@@ -192,7 +193,7 @@ class CleyxLexer(RegexLexer):
             (r"#[^\n]*", Comment),
             (r"(?:'[^']*'|\"[^\"]*\")", String),
             (r"\b(?:help|clear|sysinfo|neofetch|uptime|processes|performance|exit|ls|cd|pwd|mkdir|touch|cat|cp|mv|rm|time|date|calc|history|echo|ping|weather|open|language|apps|app|config|whoami|hostname|disk|ram|cpu|gpu|battery|top|env|which|kill|tree|find|grep|head|tail|wc|du|df|hash|zip|unzip|edit|backup|restore|ip|publicip|dns|http|download|netstat|speedtest|todo|note|timer|stopwatch|remind|alias|matrix|cleyx)\b", Keyword),
-            (r"\b(?:launch|openapp|searchapp|installed|appinfo|appfolder|closeapp|recentapps|favoriteapp|play|games|findgame|gameinfo|gamefolder|recentgames|stopgame|favoritegame|registergame|watch|videos|findvideo|video|music|playmedia|youtube|spotify|volume|mute|unmute|brightness|screenshot|clipboard|lock|sleep|shutdown|restart|settings|taskmanager|controlpanel|startupapps|findfile|findfolder|openfile|reveal|downloads|desktop|documents|pictures|videosfolder|musicfolder|recentfiles|largestfiles|duplicates|emptyfolders|cleanup|quicknote|quicknotes|calendar|convert|passwordgen|uuid|random|qr|focus|pomodoro|dictionary|translate|workspace|tutorial|examples|commands|searchcommand|whatsnew|tips|shortcuts|doctor|version|updatecheck|searchpath)\b", Keyword),
+            (r"\b(?:launch|openapp|searchapp|installed|appinfo|appfolder|closeapp|recentapps|favoriteapp|play|games|findgame|gameinfo|gamefolder|recentgames|stopgame|favoritegame|registergame|watch|videos|findvideo|video|music|playmedia|youtube|spotify|volume|mute|unmute|brightness|screenshot|clipboard|lock|sleep|shutdown|restart|settings|taskmanager|controlpanel|startupapps|findfile|findfolder|openfile|reveal|downloads|desktop|documents|pictures|videosfolder|musicfolder|recentfiles|largestfiles|duplicates|emptyfolders|cleanup|quicknote|quicknotes|calendar|convert|passwordgen|uuid|random|qr|focus|pomodoro|dictionary|translate|workspace|workshop|tutorial|examples|commands|searchcommand|whatsnew|tips|shortcuts|doctor|version|updatecheck|searchpath)\b", Keyword),
             (r"\b\d+(?:\.\d+)?\b", Number),
             (r"[+*/%=<>!-]+", Operator),
             (r"[A-Za-z_][\w.-]*", Name),
@@ -269,7 +270,7 @@ class Shell:
             from core.games import discover_games
             discover_apps()
             discover_games()
-        except (OSError, ValueError):
+        except Exception:
             return
 
     def _notify_reminder(self, message: str) -> None:
@@ -282,7 +283,10 @@ class Shell:
         def print_notification() -> None:
             console.print(f"\n[bold yellow]Reminder:[/bold yellow] {message}")
 
-        app.loop.call_soon_threadsafe(lambda: run_in_terminal(print_notification))
+        try:
+            app.loop.call_soon_threadsafe(lambda: run_in_terminal(print_notification))
+        except RuntimeError:
+            self._pending_notifications.put(message)
 
     def _flush_notifications(self) -> None:
         while not self._pending_notifications.empty():

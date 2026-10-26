@@ -195,6 +195,7 @@ _DESCRIPTIONS_TR.update({
     "shortcuts": "Kısayolları göster", "doctor": "Güvenli sistem tanılaması çalıştır",
     "version": "CleyxOS sürümünü göster", "updatecheck": "GitHub yayınlarını denetle",
     "searchpath": "Dosya arama klasörlerini yönet",
+    "workshop": "workspace komutlarının diğer adı",
 })
 
 _MESSAGES_TR = {

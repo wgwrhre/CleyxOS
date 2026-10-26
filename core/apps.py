@@ -234,16 +234,17 @@ def _discover_windows_apps() -> list[dict[str, str]]:
 
 def _discover_appsfolder_apps() -> list[dict[str, str]]:
     """Read packaged-app identities without scanning package-private install files."""
-    command = "Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress"
+    command = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress"
     try:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
-            capture_output=True, text=True, timeout=5, check=False,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        if result.returncode != 0 or not result.stdout.strip():
+        stdout = result.stdout or ""
+        if result.returncode != 0 or not stdout.strip():
             return []
-        rows = json.loads(result.stdout.lstrip("\ufeff"))
+        rows = json.loads(stdout.lstrip("\ufeff"))
         if isinstance(rows, dict):
             rows = [rows]
         return [{"name": str(row["Name"]), "path": "appsfolder:" + str(row["AppID"]),

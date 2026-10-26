@@ -22,11 +22,11 @@ def _gpu_name() -> str:
         try:
             result = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                 "(Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name)"],
-                capture_output=True, text=True, timeout=4, check=False,
+                 "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; (Get-CimInstance Win32_VideoController | Select-Object -First 1 -ExpandProperty Name)"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=4, check=False,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            name = result.stdout.strip()
+            name = (result.stdout or "").strip()
             if result.returncode == 0 and name:
                 return name
         except (OSError, subprocess.SubprocessError):
@@ -128,11 +128,12 @@ def gpu_names() -> list[str]:
     try:
         result = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-             "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
-            capture_output=True, text=True, timeout=5, check=False,
+             "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        return list(dict.fromkeys(line.strip() for line in result.stdout.splitlines() if line.strip()))
+        output = result.stdout or ""
+        return list(dict.fromkeys(line.strip() for line in output.splitlines() if line.strip()))
     except (OSError, subprocess.SubprocessError):
         return []
 

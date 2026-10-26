@@ -6,6 +6,8 @@ import json
 import hashlib
 import io
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -18,7 +20,7 @@ from prompt_toolkit.document import Document
 
 from core import advanced_files, apps, file_tools, games, media, productivity, workspaces
 from core.commands import COMMANDS, CommandProcessor
-from core.extended_commands import handles
+from core.extended_commands import handles as handles_v2
 from core.i18n import command_description, translate_message
 from core.network import download, validate_url
 from core.shell import CleyxCompleter
@@ -30,7 +32,7 @@ class RegistrationAndCompletionTests(unittest.TestCase):
         for name in ("whoami", "top", "tree", "download", "todo", "matrix", "cleyx"):
             with self.subTest(command=name):
                 self.assertIn(name, COMMANDS)
-                self.assertTrue(handles(name))
+                self.assertTrue(handles_v2(name))
 
     def test_prefix_and_subcommand_completion(self) -> None:
         completer = CleyxCompleter()
@@ -176,11 +178,86 @@ class ApplicationTests(unittest.TestCase):
 
 
 class DesktopIntegrationTests(unittest.TestCase):
+    def test_every_root_command_has_a_dispatch_route(self) -> None:
+        from core import v3_commands
+        routed = {"app", "config", "language"}
+        routed.update(name for name in COMMANDS if " " not in name and hasattr(CommandProcessor, f"cmd_{name}"))
+        routed.update(name for name in COMMANDS if " " not in name and handles_v2(name))
+        routed.update(name for name in COMMANDS if " " not in name and v3_commands.handles(name))
+        expected = {name for name in COMMANDS if " " not in name}
+        self.assertEqual(expected - routed, set())
+
+    def test_unexpected_command_exception_does_not_end_shell(self) -> None:
+        processor = CommandProcessor(SimpleNamespace())
+        with patch("core.commands.v3_commands.dispatch", side_effect=UnicodeDecodeError("utf-8", b"\x81", 0, 1, "bad byte")), \
+             patch("core.commands.console.print") as output:
+            self.assertTrue(processor.execute("doctor"))
+            self.assertTrue(processor.execute("version"))
+        output.assert_called()
+
+    def test_doctor_reports_one_failed_check_and_continues(self) -> None:
+        from core.v3_commands import _documentation
+        output = []
+        with patch("core.v3_commands.psutil.virtual_memory", side_effect=RuntimeError("unsupported")), \
+             patch("core.v3_commands.console.print", side_effect=lambda *args, **kwargs: output.append(str(args[0]))):
+            self.assertTrue(_documentation("doctor", []))
+        self.assertTrue(any("Available RAM GiB: Unavailable" in item for item in output))
+        self.assertTrue(any("CPU cores:" in item for item in output))
+
+    def test_doctor_reports_virtual_environment_status(self) -> None:
+        from core.v3_commands import _documentation
+        output = []
+        with patch("core.v3_commands.console.print", side_effect=lambda *args, **kwargs: output.append(str(args[0]))):
+            self.assertTrue(_documentation("doctor", []))
+        virtual_env = next(item for item in output if item.startswith("Virtual environment:"))
+        self.assertIn(virtual_env, {"Virtual environment: True", "Virtual environment: False"})
+
+    def test_workspace_and_workshop_both_autocomplete(self) -> None:
+        completer = CleyxCompleter()
+        for prefix in ("workspace ", "workshop "):
+            with self.subTest(prefix=prefix):
+                found = {item.text for item in completer.get_completions(Document(prefix), None)}
+                self.assertIn("create", found)
+                self.assertIn("run", found)
+
+    def test_subprocess_invalid_utf8_is_replaced_not_raised(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'prefix\\x81suffix')"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", check=True,
+        )
+        self.assertEqual(result.stdout, "prefix\ufffdsuffix")
+
+    def test_windows_subprocess_discovery_handles_missing_decoded_output(self) -> None:
+        empty = SimpleNamespace(returncode=0, stdout=None, stderr=None)
+        with patch("core.apps.subprocess.run", return_value=empty) as run:
+            self.assertEqual(apps._discover_appsfolder_apps(), [])
+            self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
+            self.assertEqual(run.call_args.kwargs["errors"], "replace")
+        with patch("core.system.subprocess.run", return_value=empty):
+            self.assertEqual(system._gpu_name(), "Unavailable")
+            self.assertEqual(system.gpu_names(), [])
+
+    def test_ping_handles_missing_decoded_output(self) -> None:
+        processor = CommandProcessor(SimpleNamespace())
+        empty = SimpleNamespace(returncode=1, stdout=None, stderr=None)
+        with patch("core.commands.socket.getaddrinfo"), patch("core.commands.subprocess.run", return_value=empty) as run:
+            self.assertTrue(processor.execute("ping example.com"))
+        self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
+        self.assertEqual(run.call_args.kwargs["errors"], "replace")
+
     def test_every_registered_root_command_is_autocompleted(self) -> None:
         completer = CleyxCompleter()
         suggestions = {item.text for item in completer.get_completions(Document(""), None)}
         expected = {name for name in COMMANDS if " " not in name}
         self.assertLessEqual(expected, suggestions)
+
+    def test_every_registered_subcommand_is_autocompleted(self) -> None:
+        completer = CleyxCompleter()
+        subcommands = [name.split(maxsplit=1) for name in COMMANDS if " " in name]
+        for parent, child in subcommands:
+            with self.subTest(parent=parent, child=child):
+                suggestions = {item.text for item in completer.get_completions(Document(parent + " "), None)}
+                self.assertIn(child.split()[0], suggestions)
 
     @patch("core.shell.run_in_terminal")
     def test_reminder_output_uses_prompt_toolkit_terminal_handoff(self, run_in_terminal_mock) -> None:

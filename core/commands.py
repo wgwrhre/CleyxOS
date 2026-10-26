@@ -266,6 +266,10 @@ class CommandProcessor:
             requests.RequestException, subprocess.SubprocessError) as error:
             console.print(f"[error]{escape(translate_message(str(error)))}[/error]")
             return True
+        except Exception as error:
+            message = translate_message(str(error)) or type(error).__name__
+            console.print(f"[error]Command failed safely: {escape(message)}[/error]")
+            return True
 
     def _unknown(self, command: str) -> None:
         match = difflib.get_close_matches(command, COMMANDS, n=1, cutoff=0.58)
@@ -448,8 +452,8 @@ class CommandProcessor:
         socket.getaddrinfo(host, None)
         count_flag = "-n" if platform.system() == "Windows" else "-c"
         result = subprocess.run(["ping", count_flag, "1", host], capture_output=True,
-                                text=True, timeout=8, check=False)
-        output = result.stdout.strip() or result.stderr.strip() or "No response."
+                                text=True, encoding="utf-8", errors="replace", timeout=8, check=False)
+        output = (result.stdout or "").strip() or (result.stderr or "").strip() or "No response."
         console.print(output, style="green" if result.returncode == 0 else "yellow", markup=False)
         return True
 

@@ -10,6 +10,7 @@ import platform
 import secrets
 import string
 import subprocess
+import sys
 import time
 import uuid as uuid_module
 import webbrowser
@@ -43,7 +44,7 @@ WINDOWS_COMMANDS = {
 PRODUCTIVITY_COMMANDS = {
     "quicknote", "quicknotes", "calendar", "convert", "passwordgen", "uuid", "random", "qr", "focus", "pomodoro",
     "dictionary", "translate", "workspace", "tutorial", "examples", "commands", "searchcommand", "whatsnew", "tips",
-    "shortcuts", "doctor", "version", "updatecheck", "searchpath",
+    "shortcuts", "doctor", "version", "updatecheck", "searchpath", "workshop",
 }
 COMMANDS_V3: dict[str, str] = {
     "launch": "Find an installed application and launch it after confirmation",
@@ -86,6 +87,7 @@ COMMANDS_V3: dict[str, str] = {
     "tips": "Show practical CleyxOS tips", "shortcuts": "Show keyboard and command shortcuts",
     "doctor": "Run safe local diagnostics", "version": "Show CleyxOS version", "updatecheck": "Check GitHub releases",
     "searchpath": "Manage folders searched by findfile/findfolder",
+    "workshop": "Alias for workspace commands",
 }
 
 
@@ -94,6 +96,8 @@ def handles(command: str) -> bool:
 
 
 def dispatch(shell, command: str, args: list[str]) -> bool:
+    if command == "workshop":
+        command = "workspace"
     if command in APPLICATION_COMMANDS:
         return _applications(command, args)
     if command in MEDIA_COMMANDS:
@@ -780,17 +784,22 @@ def _documentation(command: str, args: list[str]) -> bool:
     elif command == "shortcuts":
         console.print("Tab: complete commands/subcommands/paths. Up/Down: command history. Ctrl+C: cancel interactive utilities. Quote multiword app/game names when needed.")
     elif command == "doctor":
+        from core.config import APP_DIR
         checks = [
-            ("Python", platform.python_version()),
-            ("Platform", platform.platform()),
-            ("Config directory", str(__import__("core.config", fromlist=["APP_DIR"]).APP_DIR)),
-            ("Config writable", os.access(__import__("core.config", fromlist=["APP_DIR"]).APP_DIR, os.W_OK)),
-            ("Virtual environment", sys.prefix != sys.base_prefix),
-            ("CPU cores", psutil.cpu_count()),
-            ("Available RAM GiB", round(psutil.virtual_memory().available / 1024**3, 1)),
+            ("Python", platform.python_version),
+            ("Platform", platform.platform),
+            ("Config directory", lambda: str(APP_DIR)),
+            ("Config writable", lambda: os.access(APP_DIR, os.W_OK)),
+            ("Virtual environment", lambda: sys.prefix != sys.base_prefix),
+            ("CPU cores", psutil.cpu_count),
+            ("Available RAM GiB", lambda: round(psutil.virtual_memory().available / 1024**3, 1)),
         ]
-        for label, result in checks:
-            console.print(f"{label}: {result}")
+        for label, check in checks:
+            try:
+                result = check()
+            except Exception as error:
+                result = f"Unavailable ({type(error).__name__})"
+            console.print(f"{label}: {result}", markup=False)
     elif command == "updatecheck":
         response = requests.get(f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/latest", timeout=8,
                                 headers={"Accept": "application/vnd.github+json"})
