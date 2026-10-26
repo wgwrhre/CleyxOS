@@ -18,6 +18,10 @@ HISTORY_FILE = APP_DIR / "history.txt"
 TODO_FILE = APP_DIR / "todos.json"
 NOTES_FILE = APP_DIR / "notes.json"
 ALIASES_FILE = APP_DIR / "aliases.json"
+WORKSPACES_FILE = APP_DIR / "workspaces.json"
+FAVORITES_FILE = APP_DIR / "favorites.json"
+RECENTS_FILE = APP_DIR / "recent_launches.json"
+MANUAL_GAMES_FILE = APP_DIR / "games.json"
 DEFAULT_CONFIG: dict[str, Any] = {"prompt": "root@cleyxos:~$", "language": "en"}
 
 

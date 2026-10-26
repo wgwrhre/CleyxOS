@@ -79,8 +79,10 @@ class UserFeatureTests(unittest.TestCase):
         {"name": "Spotify", "path": "C:/Apps/Spotify.lnk", "source": "Start Menu"},
         {"name": "Spotify", "path": "C:/Apps/Spotify.exe", "source": "Windows installed-app registry"},
     ])
+    @patch("core.apps._discover_standard_install_apps", return_value=[])
+    @patch("core.apps._discover_path_apps", return_value=[])
     @patch("core.apps.list_apps", return_value={})
-    def test_app_search_matches_names_and_deduplicates(self, _registered, _discovered) -> None:
+    def test_app_search_matches_names_and_deduplicates(self, _registered, _path_apps, _install_apps, _discovered) -> None:
         matches = apps.find_apps("spot")
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["name"], "Spotify")

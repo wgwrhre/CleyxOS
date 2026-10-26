@@ -24,7 +24,7 @@ LOGO = r"""
  ╚═════╝╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝
 
        C L E Y X O S
-    TERMINAL EDITION v2.0
+    TERMINAL EDITION v3.0
 
        MAY THE LAZY GET LAZIER.
 """

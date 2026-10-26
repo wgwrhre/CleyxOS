@@ -19,6 +19,7 @@ from rich.table import Table
 from core import advanced_files, interactive, network, productivity, system
 from core.filesystem import resolve_path
 from core.i18n import translate, translate_message
+from core.version import VERSION
 from utils.terminal import console
 
 
@@ -395,7 +396,7 @@ def _special(command: str, args: list[str]) -> bool:
     else:
         _arity(command, args, 0)
         console.print(Panel(
-            "[bold cyan]CLEYXOS TERMINAL EDITION[/bold cyan]\n\nVersion: 2.0\nCreator: Cleyx\n"
+            f"[bold cyan]CLEYXOS TERMINAL EDITION[/bold cyan]\n\nVersion: {VERSION}\nCreator: Cleyx\n"
             f"Platform: {__import__('platform').system()}\nLanguage: Python {__import__('platform').python_version()}\n"
             "Motto: MAY THE LAZY GET LAZIER.",
             title="C L E Y X O S", border_style="cyan"))

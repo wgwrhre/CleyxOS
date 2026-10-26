@@ -13,7 +13,7 @@ if not exist "%VENV_PY%" (
     )
 )
 
-"%VENV_PY%" -c "import rich, psutil, requests, prompt_toolkit, pygments, dns" >nul 2>&1
+"%VENV_PY%" -c "import rich, psutil, requests, prompt_toolkit, pygments, dns, PIL, qrcode, pycaw, screen_brightness_control" >nul 2>&1
 if errorlevel 1 (
     echo [CLEYXOS] Installing required packages...
     "%VENV_PY%" -m pip install -r requirements.txt

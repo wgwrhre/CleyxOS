@@ -10,12 +10,13 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 from unittest.mock import patch
 
 from prompt_toolkit.document import Document
 
-from core import advanced_files, apps, productivity
+from core import advanced_files, apps, file_tools, games, media, productivity, workspaces
 from core.commands import COMMANDS, CommandProcessor
 from core.extended_commands import handles
 from core.i18n import command_description, translate_message
@@ -166,11 +167,171 @@ class ApplicationTests(unittest.TestCase):
             root = Path(tmp)
             target = root / "sample.py"
             target.write_text("print('ok')", encoding="utf-8")
-            with patch("core.apps.ensure_app_dir"), patch("core.apps.APPS_FILE", root / "apps.json"):
+            with patch("core.apps.ensure_app_dir"), patch("core.apps.APPS_FILE", root / "apps.json"), \
+                 patch("core.apps.discover_apps", return_value=[]):
                 apps.add_app("sample", str(target))
                 matches = apps.find_apps("sam")
                 self.assertEqual(matches[0]["name"], "sample")
                 self.assertEqual(matches[0]["source"], "registered")
+
+
+class DesktopIntegrationTests(unittest.TestCase):
+    def test_every_registered_root_command_is_autocompleted(self) -> None:
+        completer = CleyxCompleter()
+        suggestions = {item.text for item in completer.get_completions(Document(""), None)}
+        expected = {name for name in COMMANDS if " " not in name}
+        self.assertLessEqual(expected, suggestions)
+
+    @patch("core.shell.run_in_terminal")
+    def test_reminder_output_uses_prompt_toolkit_terminal_handoff(self, run_in_terminal_mock) -> None:
+        from core.shell import Shell
+        with patch("core.shell.ensure_app_dir"), patch("core.shell.FileHistory"), \
+             patch("core.shell.PromptSession") as prompt_session:
+            shell = Shell(cwd=Path.cwd())
+        loop = Mock()
+        loop.call_soon_threadsafe.side_effect = lambda callback: callback()
+        prompt_session.return_value.app = SimpleNamespace(is_running=True, loop=loop)
+        shell.session = prompt_session.return_value
+        shell._notify_reminder("test")
+        run_in_terminal_mock.assert_called_once()
+
+    def test_v3_help_descriptions_are_localized(self) -> None:
+        with patch("core.i18n.get_config", return_value={"language": "tr"}):
+            untranslated = [name for name, description in COMMANDS.items()
+                            if command_description(name, description) == description]
+        self.assertEqual(untranslated, [])
+
+    def test_launch_confirmation_is_localized(self) -> None:
+        with patch("core.i18n.get_config", return_value={"language": "tr"}):
+            message = translate_message("Launch application 'Discord' from Start Menu? [y/N]: ")
+        self.assertIn("başlatılsın mı?", message)
+
+    def test_version_comparison(self) -> None:
+        from core.v3_commands import _version_tuple
+        self.assertGreater(_version_tuple("v3.1.0"), _version_tuple("3.0.9"))
+        self.assertEqual(_version_tuple("3.0"), (3, 0, 0, 0))
+
+    def test_app_discovery_cache_and_fuzzy_alias(self) -> None:
+        apps.invalidate_discovery_cache()
+        candidate = {"name": "Visual Studio Code", "path": "C:/Apps/Code.exe", "source": "Start Menu"}
+        with patch("core.apps._discover_windows_apps", return_value=[candidate]) as scan, \
+             patch("core.apps._discover_standard_install_apps", return_value=[]), \
+             patch("core.apps.list_apps", return_value={}):
+            self.assertEqual(apps.discover_apps()[0]["name"], "Visual Studio Code")
+            apps.discover_apps()
+            scan.assert_called_once()
+            self.assertEqual(apps.find_apps("vscode")[0]["name"], "Visual Studio Code")
+            apps.discover_apps(refresh=True)
+            self.assertEqual(scan.call_count, 2)
+        apps.invalidate_discovery_cache()
+
+    def test_game_search_supports_spaced_fuzzy_query(self) -> None:
+        with patch("core.games.discover_games", return_value=[{"name": "ULTRAKILL", "path": "C:/Games/ULTRAKILL", "source": "Steam"}]):
+            matches = games.search_games("ultra kill")
+        self.assertEqual(matches[0]["name"], "ULTRAKILL")
+
+    def test_steam_manifest_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "Steam"
+            manifests = root / "steamapps"
+            common = manifests / "common" / "Example Game"
+            common.mkdir(parents=True)
+            (manifests / "appmanifest_123.acf").write_text(
+                '"AppState" { "appid" "123" "name" "Example Game" "installdir" "Example Game" }',
+                encoding="utf-8",
+            )
+            with patch("core.games._steam_roots", return_value=[root]):
+                detected = games._steam_games()
+        self.assertEqual(detected[0]["name"], "Example Game")
+        self.assertEqual(detected[0]["appid"], "123")
+        self.assertEqual(detected[0]["launcher"], "steam")
+
+    @patch("core.apps.os.startfile")
+    def test_packaged_app_launch_uses_appsfolder_protocol(self, startfile):
+        with patch("core.apps.os.name", "nt"):
+            apps.launch_app("Calculator", [], resolved={
+                "name": "Calculator", "path": "appsfolder:Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
+            })
+        startfile.assert_called_once_with("shell:AppsFolder\\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App")
+
+    def test_media_search_supports_unicode_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video = root / "家庭の映像.MP4"
+            video.write_bytes(b"sample")
+            with patch("core.media.get_config", return_value={"video_folders": [str(root)]}):
+                self.assertEqual(media.find_media("家庭", "video"), [video])
+
+    def test_workspace_data_only_persistence_and_url_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch("core.workspaces.ensure_app_dir"), patch("core.workspaces.WORKSPACES_FILE", root / "workspaces.json"):
+                workspaces.create("coding")
+                workspaces.add_step("coding", "app", "vscode", cwd=root)
+                workspaces.add_step("coding", "url", "https://example.com", cwd=root)
+                self.assertEqual(workspaces.get("coding"), [
+                    {"type": "app", "value": "vscode"},
+                    {"type": "url", "value": "https://example.com"},
+                ])
+                with self.assertRaises(ValueError):
+                    workspaces.add_step("coding", "url", "javascript:alert(1)", cwd=root)
+
+    def test_autocomplete_uses_cached_app_and_workspace_names(self) -> None:
+        completer = CleyxCompleter()
+        with patch("core.apps.cached_apps", return_value=[{"name": "Discord"}, {"name": "Visual Studio Code"}]), \
+             patch("core.games.cached_games", return_value=[{"name": "ULTRAKILL"}]), \
+             patch("core.apps.discover_apps", side_effect=AssertionError("autocomplete must not scan")), \
+             patch("core.games.discover_games", side_effect=AssertionError("autocomplete must not scan")), \
+             patch("core.workspaces.list_workspaces", return_value={"coding": []}):
+            apps_result = {item.text for item in completer.get_completions(Document("launch dis"), None)}
+            workspace_result = {item.text for item in completer.get_completions(Document("workspace run cod"), None)}
+            multiword = list(completer.get_completions(Document("launch visual"), None))
+            workspace_app = {item.text for item in completer.get_completions(Document("workspace addapp coding dis"), None)}
+            game_result = {item.text for item in completer.get_completions(Document("play ultra"), None)}
+            settings = {item.text for item in completer.get_completions(Document("settings "), None)}
+        self.assertIn("Discord", apps_result)
+        self.assertIn("coding", workspace_result)
+        self.assertEqual(multiword[0].text, "Visual Studio Code")
+        self.assertEqual(multiword[0].start_position, -6)
+        self.assertIn("Discord", workspace_app)
+        self.assertIn("ULTRAKILL", game_result)
+        self.assertIn("sound", settings)
+
+    @patch("core.v3_commands.application_services.launch_application")
+    @patch("core.v3_commands.application_services.confirm_launch", return_value=False)
+    @patch("core.v3_commands.apps.find_apps", return_value=[{
+        "name": "Discord", "path": "C:/Apps/Discord.exe", "source": "Start Menu", "_score": "0",
+    }])
+    def test_application_launch_requires_confirmation(self, find_apps, confirm, launch):
+        from core.v3_commands import dispatch
+        self.assertTrue(dispatch(object(), "launch", ["discord"]))
+        confirm.assert_called_once()
+        launch.assert_not_called()
+
+    def test_measurement_conversion(self) -> None:
+        from core.v3_commands import _convert
+        self.assertEqual(_convert("5", "km", "m"), "5 km = 5000 m")
+        self.assertEqual(_convert("0", "c", "f"), "0°C = 32°F")
+
+    def test_cleanup_only_removes_temp_root_direct_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_root = Path(tmp) / "temp"
+            temp_root.mkdir()
+            safe = temp_root / "old.tmp"
+            outside = Path(tmp) / "outside.tmp"
+            safe.write_text("safe", encoding="utf-8")
+            outside.write_text("outside", encoding="utf-8")
+            with patch("core.file_tools.tempfile.gettempdir", return_value=str(temp_root)):
+                self.assertEqual(file_tools.remove_cleanup_candidates([safe, outside]), 1)
+            self.assertFalse(safe.exists())
+            self.assertTrue(outside.exists())
+
+    @patch("core.v3_commands._confirm_windows", return_value=True)
+    @patch("core.v3_commands.windows_controls.power_action")
+    def test_shutdown_command_is_confirmation_gated(self, power_action, _confirm):
+        from core.v3_commands import dispatch
+        self.assertTrue(dispatch(object(), "shutdown", []))
+        power_action.assert_called_once_with("shutdown")
 
 
 class SafetyAndProductivityTests(unittest.TestCase):

@@ -1,36 +1,57 @@
-# CleyxOS v2.0 — Terminal Edition
+# CleyxOS v3.0 — Terminal Edition
 
-CleyxOS is a Python 3.14 terminal environment simulation for Windows 10/11. It is an application, not an operating system, and only dispatches its documented command set; aliases never invoke a platform shell.
+CleyxOS is a Python 3.14 terminal environment for Windows 10/11. It is a Python application, not an operating system. It combines a command shell with local Windows app/game discovery, media search, safe desktop controls, and productivity tools.
 
-## Start
+## Installation
 
-Double-click `CleyxOS.bat`. The existing launcher creates `.venv` with Python 3.14 and installs `requirements.txt` if needed. Internet is required for initial installation and online commands. Run `python main.py` inside the environment to start directly. Set `CLEYXOS_NO_ANIMATION=1` to skip the boot delay.
+Install Python 3.14, then double-click `CleyxOS.bat`. It creates `.venv` and installs `requirements.txt` on first run. Network access is required for setup. To run manually, activate `.venv` and execute `python main.py`. Set `CLEYXOS_NO_ANIMATION=1` to skip the boot animation.
 
-## v2 command groups
+## Application and Game Launching
 
-- System: `whoami`, `hostname`, `disk`, `ram`, `cpu`, `gpu`, `battery`, `top [seconds] [cpu|ram|name]`, `env`, `which`, `kill <pid>`, `reboot-shell`.
-- Files: `tree`, `find`, `grep`, `head`, `tail`, `wc`, `du`, `df`, `hash`, `zip`, `unzip`, `edit`, `backup`, `restore`.
-- Network: `ip`, `publicip`, `dns`, `http`, `download`, `netstat`, `speedtest`.
-- Productivity: `todo`, `note`, `timer`, `stopwatch`, `remind`, `alias`.
-- Special: `matrix [speed]` and `cleyx`.
+Use `launch discord`, `launch "visual studio code"`, `searchapp spotify`, `installed`, `appinfo chrome`, or `appfolder vscode`. CleyxOS searches Start Menu shortcuts, app registry metadata, standard install folders, PATH, and existing registrations; discovery is cached briefly. A selection menu appears for ambiguous names, and launches require confirmation. `openapp` aliases `launch`. `closeapp <name>` displays matching user processes and confirms before closing them. `recentapps` and `favoriteapp add|list|remove` track CleyxOS launches and favorites.
 
-Run `help` for descriptions and `help`/Tab completion for command and subcommand suggestions. `language en` and `language tr` set the persistent interface language. Arrow keys retain sequential command history navigation.
+Installed Steam app manifests and Epic local manifests are supported, alongside game shortcuts and manual registrations. Try `games`, `findgame ultrakill`, `play "people playground"`, `gameinfo minecraft`, or `favoritegame add undertale`. `registergame <name> <exe-or-platform-uri>` registers games not detected automatically. `play` asks before launching and uses Steam/Epic protocols when available; it does not bypass DRM or sign-in.
+
+## Media and Windows
+
+Set folders with `video setfolder "C:\\Users\\You\\Videos"` and `music setfolder "D:\\Audio"`. Then use `videos`, `findvideo family`, `watch family`, `video info "clip.mp4"`, `video recent`, `music list`, `music album`, or `playmedia "song.flac"`. Supported formats: MP4/MKV/AVI/MOV/WEBM and MP3/WAV/FLAC/OGG/M4A. Files open in the default Windows media application. `youtube <query>` and `spotify <query>` open service searches.
+
+Windows utilities include `volume 40`, `volume up 5`, `mute`, `brightness 60`, `screenshot`, `clipboard copy <text>`, `clipboard show`, `settings sound`, `taskmanager`, `startupapps`, `lock`, and common folders such as `downloads` and `documents`. `sleep`, `shutdown`, and `restart` require typing `yes`. Volume, brightness, screenshot, and clipboard integrations use optional Windows/Python APIs; brightness depends on monitor support. The clipboard display warns before showing potentially private text.
+
+## Files and Productivity
+
+`findfile <name>` and `findfolder <name>` search common user folders plus paths added with `searchpath add <folder>`; they do not walk entire drives. `openfile`, `reveal`, `largestfiles`, `duplicates`, and `emptyfolders` support everyday file tasks. Duplicate detection only reports matches. `cleanup preview` lists old temporary files; `cleanup run` requires confirmation and only removes the listed, direct-child `.tmp`, `.temp`, and `.log` files from the OS temp folder.
+
+Productivity commands include `quicknote <text>`, `quicknotes`, `calendar [next|previous]`, `convert 5 km mi`, `passwordgen [length]`, `uuid`, `random 1 100`, `qr <text>`, `focus 25m`, `pomodoro`, and `dictionary <word>`. `translate <target-language> <text>` requires a user-configured HTTPS LibreTranslate-compatible endpoint: `config translate-url https://your-provider.example`.
+
+## Workspaces and Help
+
+Workspaces store only typed app/game/folder/URL actions, never shell scripts. Example:
+
+```text
+workspace create coding
+workspace addapp coding vscode
+workspace addapp coding chrome
+workspace addfolder coding C:\\Projects
+workspace addurl coding https://github.com
+workspace run coding
+```
+
+Other commands: `workspace list|info|remove`. Run `help`, `commands`, `searchcommand <query>`, `tutorial`, `tutorial <command>`, `examples <command>`, `tips`, `shortcuts`, `whatsnew`, `doctor`, `version`, or `updatecheck`. Tab completion includes commands, subcommands, cached app/game names, workspaces, and local paths. `language en` / `language tr` sets the saved UI language.
 
 ## Safety
 
-- `kill` displays process details, requires an explicit `yes`, and refuses protected processes or processes owned by another user. No force-kill is attempted.
-- `env` masks values for environment variable names associated with passwords, secrets, tokens, keys, credentials, authentication, and connection strings.
-- `download` accepts HTTPS only, asks for confirmation, limits downloads to 512 MiB, refuses overwrites, cleans up interrupted partial files, and never executes downloaded content.
-- ZIP extraction validates archive paths, blocks traversal and symlink traversal, limits archive entries/expanded size, and asks before overwriting existing files.
-- `backup` creates a new ZIP; `restore` validates it and confirms collisions. `rm`, task/note removal, and other destructive commands retain confirmations.
-- `app remove` removes only a CleyxOS registration and never uninstalls a Windows application.
-- `speedtest` requires confirmation before its approximate 6 MiB Cloudflare test. `publicip`, DNS, HTTP, weather, and downloads contact their documented network services.
+- App/game launch and workspace execution show what will launch and ask for confirmation; ambiguous results require a selection.
+- Windows power actions require explicit typed confirmation. No security settings are changed.
+- `findfile` / `findfolder` scan common profile directories and configured roots, not entire drives. Ctrl+C stops a search.
+- Workspace JSON is data-only; URLs are HTTP/HTTPS and configured translation endpoints must use HTTPS.
+- Existing v2 protections remain: masked environment secrets, safe calculator, confirmed deletes, HTTPS-only size-limited downloads, and ZIP traversal/overwrite defenses.
 
-## Persistence and tests
+## Persistence, Limitations, and Troubleshooting
 
-Configuration, app registrations, history, tasks, notes, and aliases are stored under `%APPDATA%\\CleyxOS`. Aliases can target only a safe, documented built-in command; shell chaining and privileged/destructive targets are rejected, and recursive expansion is bounded.
+Configuration, cached catalogs, workspaces, favorites, recents, tasks, notes, and aliases are stored under `%APPDATA%\\CleyxOS`. Installed game discovery currently reads Steam/Epic local manifests and Windows shortcuts; other launchers may require a shortcut or `registergame`. Microsoft Store/Xbox games with protected or unavailable launch targets may not start. System controls can be unavailable on unsupported hardware. `dictionary` and online networking commands need an Internet connection. No download is executed automatically.
 
-Run `python -m unittest discover -s tests` from the project directory.
+If an app is missing, refresh its Start Menu shortcut or add it with `app add`; a game can be added with `registergame`. If controls are unavailable, rerun `CleyxOS.bat` to verify dependencies and check display/audio hardware support. Run `doctor` for local diagnostics. Tests: `python -m unittest discover -s tests`.
 
 ## ⚠️ BEFORE YOU JUMP ON ME
 First of all, **YES, THIS PROJECT WAS AI-CODED.**

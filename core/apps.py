@@ -2,15 +2,27 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from difflib import SequenceMatcher
 from pathlib import Path
 
 from core.config import APPS_FILE, ensure_app_dir, load_json, save_json
+
+_DISCOVERY_TTL_SECONDS = 45.0
+_discovery_cache: tuple[float, list[dict[str, str]]] | None = None
+_discovery_lock = threading.RLock()
+_ALIASES = {
+    "vscode": "visual studio code", "code": "visual studio code",
+    "chrome": "google chrome", "edge": "microsoft edge",
+    "discord": "discord", "spotify": "spotify",
+}
 
 
 def list_apps() -> dict[str, dict[str, str]]:
@@ -31,6 +43,7 @@ def add_app(name: str, executable: str, description: str = "") -> dict[str, str]
     app = {"path": str(target), "description": description}
     apps[name] = app
     save_json(APPS_FILE, apps)
+    invalidate_discovery_cache()
     return app
 
 
@@ -40,6 +53,7 @@ def remove_app(name: str) -> None:
         raise KeyError(f"No registered application named '{name}'.")
     del apps[name]
     save_json(APPS_FILE, apps)
+    invalidate_discovery_cache()
 
 
 def get_app(name: str) -> dict[str, str]:
@@ -51,13 +65,17 @@ def get_app(name: str) -> dict[str, str]:
 
 def find_apps(query: str) -> list[dict[str, str]]:
     """Find registered or discoverable applications by exact/partial name."""
-    normalized_query = query.strip().casefold()
+    normalized_query = _normalize_name(query)
     if not normalized_query:
         return []
+    alias_query = _ALIASES.get(normalized_query.replace(" ", ""))
+    queries = {normalized_query}
+    if alias_query:
+        queries.add(_normalize_name(alias_query))
     candidates: list[dict[str, str]] = []
     for name, item in list_apps().items():
         candidates.append({"name": name, **item, "source": "registered"})
-    candidates.extend(_discover_windows_apps())
+    candidates.extend(discover_apps())
     command_path = shutil.which(query)
     if command_path:
         candidates.append({"name": Path(command_path).stem, "path": command_path,
@@ -67,15 +85,15 @@ def find_apps(query: str) -> list[dict[str, str]]:
     for candidate in candidates:
         name = candidate.get("name", "")
         path = candidate.get("path", "")
-        name_key = name.casefold()
-        if name_key == normalized_query:
+        name_key = _normalize_name(name)
+        if name_key in queries:
             score = 0
-        elif name_key.startswith(normalized_query):
+        elif any(name_key.startswith(term) for term in queries):
             score = 1
-        elif normalized_query in name_key:
+        elif any(term in name_key for term in queries):
             score = 2
         else:
-            similarity = SequenceMatcher(None, normalized_query, name_key).ratio()
+            similarity = max(SequenceMatcher(None, term, name_key).ratio() for term in queries)
             if similarity < 0.62:
                 continue
             score = 3
@@ -93,6 +111,88 @@ def find_apps(query: str) -> list[dict[str, str]]:
         elif previous.get("source") != "registered" and candidate.get("source") == "registered":
             by_name[key] = candidate
     return sorted(by_name.values(), key=lambda item: (int(item["_score"]), item["name"].casefold()))
+
+
+def _normalize_name(name: str) -> str:
+    return " ".join(re.sub(r"[^\w]+", " ", name.casefold(), flags=re.UNICODE).split())
+
+
+def discover_apps(*, refresh: bool = False) -> list[dict[str, str]]:
+    """Return cached Windows app candidates; explicitly refresh after installation changes."""
+    global _discovery_cache
+    with _discovery_lock:
+        now = time.monotonic()
+        if not refresh and _discovery_cache and now - _discovery_cache[0] < _DISCOVERY_TTL_SECONDS:
+            return [item.copy() for item in _discovery_cache[1]]
+        candidates = _discover_windows_apps()
+        candidates.extend(_discover_standard_install_apps())
+        candidates.extend(_discover_path_apps())
+        _discovery_cache = (now, candidates)
+        return [item.copy() for item in candidates]
+
+
+def cached_apps() -> list[dict[str, str]]:
+    """Return the last completed catalog snapshot immediately; never perform discovery."""
+    with _discovery_lock:
+        if _discovery_cache is None:
+            return []
+        return [item.copy() for item in _discovery_cache[1]]
+
+
+def invalidate_discovery_cache() -> None:
+    global _discovery_cache
+    _discovery_cache = None
+
+
+def _discover_standard_install_apps() -> list[dict[str, str]]:
+    if os.name != "nt":
+        return []
+    roots = {
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")),
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")),
+        Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Programs",
+    }
+    results = []
+    for root in roots:
+        try:
+            for folder in root.iterdir():
+                if not folder.is_dir():
+                    continue
+                for executable in folder.glob("*.exe"):
+                    results.append({"name": folder.name, "path": str(executable),
+                                    "description": "Standard installation directory", "source": "Install directory"})
+                    break
+        except (OSError, PermissionError):
+            continue
+    return results
+
+
+def _discover_path_apps(*, limit: int = 1500) -> list[dict[str, str]]:
+    """Index executable entries directly inside PATH directories (never recurse)."""
+    results = []
+    seen: set[str] = set()
+    extensions = {".exe"} if os.name == "nt" else {""}
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if not directory:
+            continue
+        root = Path(directory.strip('"')).expanduser()
+        if not root.is_dir():
+            continue
+        try:
+            for item in root.iterdir():
+                if not item.is_file() or item.suffix.casefold() not in extensions:
+                    continue
+                key = os.path.normcase(str(item))
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append({"name": item.stem, "path": str(item),
+                                "description": "Executable available on PATH", "source": "PATH"})
+                if len(results) >= limit:
+                    return results
+        except (PermissionError, OSError):
+            continue
+    return results
 
 
 def find_registered_app(query: str) -> tuple[str, dict[str, str]] | None:
@@ -128,7 +228,29 @@ def _discover_windows_apps() -> list[dict[str, str]]:
                 found.append({"name": path.stem, "path": str(path),
                               "description": "Start Menu application shortcut", "source": "Start Menu"})
     found.extend(_discover_uninstall_registry())
+    found.extend(_discover_appsfolder_apps())
     return found
+
+
+def _discover_appsfolder_apps() -> list[dict[str, str]]:
+    """Read packaged-app identities without scanning package-private install files."""
+    command = "Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress"
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+            capture_output=True, text=True, timeout=5, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        rows = json.loads(result.stdout.lstrip("\ufeff"))
+        if isinstance(rows, dict):
+            rows = [rows]
+        return [{"name": str(row["Name"]), "path": "appsfolder:" + str(row["AppID"]),
+                 "description": "Packaged Windows application", "source": "Windows AppsFolder"}
+                for row in rows if isinstance(row, dict) and row.get("Name") and row.get("AppID")]
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, TypeError):
+        return []
 
 
 def _discover_uninstall_registry() -> list[dict[str, str]]:
@@ -190,7 +312,15 @@ def _executable_from_icon(icon: str) -> str:
 
 def launch_app(name: str, arguments: list[str], *, resolved: dict[str, str] | None = None) -> subprocess.Popen[bytes] | None:
     app = resolved or get_app(name)
-    target = Path(app["path"])
+    target_text = app.get("path", "")
+    if target_text.startswith("appsfolder:") and os.name == "nt":
+        if arguments:
+            raise ValueError("Arguments are not supported for packaged Windows apps.")
+        os.startfile("shell:AppsFolder\\" + target_text.removeprefix("appsfolder:"))
+        return None
+    if not target_text:
+        raise FileNotFoundError(f"No launch path is available for {app.get('name', name)}.")
+    target = Path(target_text)
     if not target.is_file():
         raise FileNotFoundError(f"Registered application no longer exists: {target}")
     if target.suffix.casefold() == ".py":

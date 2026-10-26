@@ -115,7 +115,17 @@ def alias_add(name: str, command: str) -> None:
         "time", "date", "echo", "history", "whoami", "hostname", "disk", "ram", "cpu", "gpu", "battery",
         "tree", "find", "grep", "head", "tail", "wc", "du", "df", "hash", "ip", "dns", "publicip",
         "http", "open", "calc", "which", "weather", "todo", "note", "matrix", "cleyx",
+        "launch", "openapp", "searchapp", "installed", "appinfo", "appfolder", "recentapps", "favoriteapp",
+        "play", "games", "findgame", "gameinfo", "gamefolder", "recentgames", "favoritegame", "registergame",
+        "watch", "videos", "findvideo", "video", "music", "playmedia", "youtube", "spotify", "volume",
+        "mute", "unmute", "brightness", "screenshot", "clipboard", "lock", "settings", "taskmanager",
+        "controlpanel", "startupapps", "findfile", "findfolder", "openfile", "reveal", "downloads", "desktop",
+        "documents", "pictures", "videosfolder", "musicfolder", "recentfiles", "largestfiles", "duplicates",
+        "emptyfolders", "quicknote", "quicknotes", "calendar", "convert", "passwordgen", "uuid", "random",
+        "qr", "focus", "pomodoro", "dictionary", "translate", "workspace", "tutorial", "examples", "commands",
+        "searchcommand", "whatsnew", "tips", "shortcuts", "doctor", "version", "updatecheck", "searchpath",
     }
+    safe_targets.difference_update({"shutdown", "restart", "sleep", "kill", "rm", "cleanup", "closeapp", "stopgame"})
     existing = aliases()
     if not target_tokens or (target_tokens[0].casefold() not in safe_targets and target_tokens[0].casefold() not in existing):
         raise ValueError("Aliases can target only safe documented CleyxOS commands or other aliases.")

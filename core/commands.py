@@ -25,7 +25,7 @@ from rich.table import Table
 
 from core import apps, filesystem, system
 from core.config import get_config, set_language, set_prompt
-from core import extended_commands, productivity
+from core import extended_commands, productivity, v3_commands
 from core.i18n import SUPPORTED_LANGUAGES, command_description, get_language, translate, translate_message
 from utils.terminal import console
 
@@ -64,6 +64,7 @@ COMMANDS: dict[str, str] = {
     "config show": "Show persistent shell configuration",
     "config prompt": "Set the shell prompt text",
     "config language": "Choose the interface language (en/tr)",
+    "config translate-url": "Configure the HTTPS translation provider endpoint",
     "whoami": "Display the current Windows username",
     "hostname": "Display the computer hostname",
     "disk": "Show drive capacity and usage",
@@ -118,6 +119,7 @@ COMMANDS: dict[str, str] = {
     "alias": "Manage safe command aliases",
     "matrix": "Show animated Matrix digital rain (Q to exit)",
     "cleyx": "Show CleyxOS version and platform information",
+    **v3_commands.COMMANDS_V3,
 }
 
 
@@ -213,10 +215,16 @@ class CommandProcessor:
                 return self._app(args[0].casefold(), args[1:])
             if command == "config":
                 if not args:
-                    _usage("config", "<show|prompt|language> [value]")
+                    _usage("config", "<show|prompt|language|translate-url> [value]")
                 return self._config(args[0].casefold(), args[1:])
             if command == "language":
                 return self.cmd_language(args)
+            if v3_commands.handles(command):
+                try:
+                    return v3_commands.dispatch(self.shell, command, args)
+                except (psutil.Error, requests.RequestException) as error:
+                    console.print(f"[error]{escape(translate_message(str(error)))}[/error]")
+                    return True
             if extended_commands.handles(command):
                 try:
                     return extended_commands.dispatch(self.shell, command, args)
@@ -244,6 +252,8 @@ class CommandProcessor:
                     raise ValueError("Aliases may not expand to app/config management commands.")
             else:
                 raise ValueError("Alias expansion limit reached; possible recursive alias.")
+            if v3_commands.handles(command):
+                return v3_commands.dispatch(self.shell, command, args)
             if extended_commands.handles(command):
                 return extended_commands.dispatch(self.shell, command, args)
             handler = getattr(self, f"cmd_{command}", None)
@@ -251,7 +261,7 @@ class CommandProcessor:
                 self._unknown(command)
                 return True
             return handler(args)
-        except (OSError, ValueError, KeyError, TypeError, ArithmeticError,
+        except (OSError, ValueError, LookupError, TypeError, ArithmeticError, RuntimeError,
             zipfile.BadZipFile,
             requests.RequestException, subprocess.SubprocessError) as error:
             console.print(f"[error]{escape(translate_message(str(error)))}[/error]")
@@ -501,6 +511,8 @@ class CommandProcessor:
                 query, launch_args = " ".join(args), []
             selected = self._select_app(query, apps.find_apps(query))
             process = apps.launch_app(selected["name"], launch_args, resolved=selected)
+            from core.application_services import record_launch
+            record_launch(selected["name"], "app")
             pid_text = f" (PID {process.pid})" if process is not None else ""
             console.print(f"[success]Launched {selected['name']}{pid_text}.[/success]")
         elif action == "remove":
@@ -566,6 +578,17 @@ class CommandProcessor:
             console.print("[success]Prompt saved. Available variables: {cwd}, {home}.[/success]")
         elif action == "language":
             return self.cmd_language(args)
+        elif action == "translate-url":
+            if len(args) != 1 or not args[0].startswith("https://"):
+                _usage("config translate-url", "<https-endpoint>")
+            endpoint = urlsplit(args[0])
+            if not endpoint.hostname or endpoint.username or endpoint.password or any(char.isspace() for char in args[0]):
+                raise ValueError("Translation endpoint must be a valid HTTPS URL without embedded credentials.")
+            config = get_config()
+            config["translate_endpoint"] = args[0].rstrip("/")
+            from core.config import save_json, CONFIG_FILE
+            save_json(CONFIG_FILE, config)
+            console.print("[success]Translation endpoint saved.[/success]")
         else:
-            _usage("config", "<show|prompt|language> [value]")
+            _usage("config", "<show|prompt|language|translate-url> [value]")
         return True
